@@ -1,0 +1,16 @@
+#!/bin/bash
+# Short launcher. From this directory:
+#   sudo ./build
+#   ./build
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$DIR/build-raspap-webone.sh"
+[[ -f "$SCRIPT" ]] || { printf 'missing %s\n' "$SCRIPT" >&2; exit 1; }
+case "${1:-}" in
+    cli) shift; set -- --cli "$@" ;;
+    gui|ui) shift; set -- --ui "$@" ;;
+esac
+if [[ "$(id -u)" -ne 0 ]]; then
+    exec sudo bash "$SCRIPT" "$@"
+fi
+exec bash "$SCRIPT" "$@"
