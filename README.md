@@ -13,10 +13,11 @@ It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (
 | Hotspot IP | `10.3.141.1/24` |
 | Default SSID | `RaspAP` (RaspAP default) |
 | Wi-Fi password | `ChangeMe` (RaspAP default) |
+| Wi-Fi country | `CA` (change with `--country`) |
 | Hostname | **none — you set it** |
 | Login user / password | **none — you set them** |
 | RaspAP web admin | `admin` / `secret` (RaspAP default) |
-| SSH | On by default; can be turned off |
+| SSH | Password, public key, both, or off (default: password) |
 | PAC / WPAD | `http://10.3.141.1/wpad.dat` |
 
 Connect to the hotspot, then:
@@ -40,7 +41,7 @@ The script installs the other build tools itself (`qemu-user-static`, `mtools`, 
 
 ## Run it
 
-**Download the zip or clone**
+**Download the repo as a zip** (GitHub → Code → Download ZIP) **or clone**. You need:
 
 - `build-raspap-webone.sh`
 - `build-cli`
@@ -60,10 +61,11 @@ sudo ./build-cli --help
 ### UI
 
 - **New** / **Update** / **Delete all**
-- Hostname, user, password, SSID, Wi-Fi password
+- Hostname, user, password, SSID, Wi-Fi password, country
 - **View** shows a hidden password
-- **Enable SSH** (optional public key)
+- **SSH:** Off / Password / Public key / Both (Browse a `.pub` for key modes)
 - **Skip extras** (WebOne only, no ffmpeg / yt-dlp)
+- **Skip verification** (download without SHA-256 check)
 - A progress bar in the terminal; a progress window if you have a display
 
 ### CLI (no window)
@@ -77,15 +79,18 @@ Optional:
 ```bash
   --ssid RaspAP \
   --wifi-pass ChangeMe \
+  --country CA \
+  --ssh-password \
+  --ssh-pubkey --ssh-key /home/you/.ssh/id_ed25519.pub \
   --no-ssh \
-  --ssh-key /home/you/.ssh/id_ed25519.pub \
   --skip-extras \
+  --skip-verify \
   --expand-mib 1024 \
   --workdir /home/you/work \
   --outdir /home/you/out
 ```
 
-`--ssh-key` turns SSH on and bakes that `.pub` into the image.
+`--ssh-key FILE` bakes that `.pub` and uses public-key SSH (or both if you also passed `--ssh-password`). `--ssh` enables password and public key.
 
 ## Modes
 
@@ -131,10 +136,16 @@ Replace `/dev/sdX` with the real card device. Imager SSH customisation still wor
 
 ## SSH
 
-- Default: SSH **on** (boot `ssh` flag + `ssh.service` enabled)
-- UI: uncheck **Enable SSH**, or CLI: `--no-ssh`
-- Off = no remote login. You can still turn SSH on later in Raspberry Pi Imager
-- Pubkey and password auth are both allowed when SSH is on
+Pick one in the GUI, or with flags:
+
+| Choice | Flag | sshd |
+| --- | --- | --- |
+| Off | `--no-ssh` | service not enabled |
+| Password | `--ssh-password` (default) | password only |
+| Public key | `--ssh-pubkey --ssh-key FILE` | pubkey only |
+| Both | `--ssh` | password and pubkey |
+
+Off = no remote login. You can still turn SSH on later in Raspberry Pi Imager.
 
 ## Interrupted builds
 
@@ -156,5 +167,6 @@ Last error is in `work/last-error.txt`.
 
 - Build host can be x86_64; the image is aarch64 (qemu + binfmt)
 - Peak disk is roughly: zip + working image + final image
+- Step 3 downloads the RaspAP zip and WebOne `.deb`, then verifies GitHub release SHA-256 (unless you check **Skip verification** or pass `--skip-verify`). Hashes are written next to the files in `work/dl/`
 - RaspAP admin `admin` / `secret` is the official image default — change it in the RaspAP web UI after first boot
 - WebOne proxy for clients: `10.3.141.1:8080`, or set the PAC URL to `http://10.3.141.1/wpad.dat`
