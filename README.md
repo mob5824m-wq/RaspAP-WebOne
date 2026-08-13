@@ -12,7 +12,7 @@ It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (
 | WebOne | arm64 `.deb` (currently 0.18.2), proxy `10.3.141.1:8080` |
 | Hotspot IP | `10.3.141.1/24` |
 | Default SSID | `RaspAP` (official RaspAP default) |
-| Wi-Fi password | 'ChangeMe' |
+| Wi-Fi password | `ChangeMe` (official RaspAP default; 8+ characters) |
 | Hostname | **none — you set it** |
 | Login user / password | **none — you set them** |
 | RaspAP web admin | `admin` / `secret` (what the official image ships) |
@@ -40,18 +40,21 @@ The script installs the other build tools itself (`qemu-user-static`, `mtools`, 
 
 ## Run it
 
-Copy `build-raspap-webone.sh` to the machine that will build the image. Do **not** copy a markdown link. The command is:
+Copy these into the same directory (do **not** copy a markdown link):
+
+- `build-raspap-webone.sh`
+- `build-cli`
+- `build-gui`
 
 ```bash
-sudo bash build-raspap-webone.sh
+sudo ./build-cli       # text menu / flags
+sudo ./build-gui       # graphical window
 ```
 
-That opens the UI if a display is available, otherwise a text menu.
+`./build-cli` and `./build-gui` also work — they run `sudo` for you.
 
 ```bash
-sudo bash build-raspap-webone.sh --ui      # force the window
-sudo bash build-raspap-webone.sh --cli     # text only
-sudo bash build-raspap-webone.sh --help
+sudo ./build-cli --help
 ```
 
 ### UI
@@ -63,22 +66,19 @@ sudo bash build-raspap-webone.sh --help
 - **Skip extras** (WebOne only, no ffmpeg / yt-dlp)
 - A progress bar in the terminal; a progress window if you have a display
 
-Hostname, login user, login password, and Wi-Fi password start empty. The build will not start until they are filled in.
+Hostname, login user, and login password start empty. Wi-Fi password defaults to `ChangeMe`. The build will not start until hostname, user, and login password are filled in.
 
 ### CLI (no window)
 
 ```bash
-sudo bash build-raspap-webone.sh --new \
-  --name mypi \
-  --user myuser \
-  --password 'your-login-pass' \
-  --wifi-pass 'your-wifi-pass'
+sudo ./build-cli --new --name mypi --user myuser --password 'your-login-pass'
 ```
 
 Optional:
 
 ```bash
   --ssid RaspAP \
+  --wifi-pass ChangeMe \
   --no-ssh \
   --ssh-key /home/you/.ssh/id_ed25519.pub \
   --skip-extras \
@@ -144,13 +144,13 @@ Replace `/dev/sdX` with the real card device. Imager SSH customisation still wor
 The script is verbose and checkpointed. If it stops:
 
 ```bash
-sudo bash build-raspap-webone.sh
+sudo ./build-cli
 ```
 
 Same flags as before. To throw the work away:
 
 ```bash
-sudo bash build-raspap-webone.sh --new
+sudo ./build-cli --new
 ```
 
 Last error is in `work/last-error.txt`.
