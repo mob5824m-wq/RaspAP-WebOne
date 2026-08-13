@@ -197,8 +197,9 @@ stop_progress_ui() {
 
 start_progress_ui() {
     PROGRESS_FILE="${WORKDIR}/.build-progress"
-    mkdir -p "$WORKDIR"
-    printf '0/%s|0|Starting…\n' "$PROGRESS_TOTAL" > "$PROGRESS_FILE"
+    mkdir -p "$WORKDIR" 2>/dev/null || return 0
+    chmod 755 "$WORKDIR" 2>/dev/null || true
+    printf '0/%s|0|Starting…\n' "$PROGRESS_TOTAL" > "$PROGRESS_FILE" 2>/dev/null || return 0
     [[ "${WANT_UI:-auto}" == "no" ]] && return 0
     [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]] || return 0
     python3 -c "import tkinter" >/dev/null 2>&1 || return 0
@@ -216,8 +217,12 @@ from tkinter import ttk
 path = sys.argv[1]
 pidfile = path + ".pid"
 try:
-    open(pidfile, "w").write(str(os.getpid()))
-except OSError:
+    pdir = os.path.dirname(pidfile)
+    if pdir and not os.path.exists(pdir):
+        os.makedirs(pdir, mode=0o755, exist_ok=True)
+    with open(pidfile, "w") as f:
+        f.write(str(os.getpid()))
+except (OSError, IOError):
     pass
 
 root = tk.Tk()
@@ -252,11 +257,15 @@ pct_lbl.pack(anchor="e", pady=(6, 0))
 def read_progress():
     cur, total, pct, msg = 0, 10, 0, "Starting…"
     try:
-        line = open(path, encoding="utf-8", errors="replace").read().strip().splitlines()[-1]
-        left, pct_s, msg = line.split("|", 2)
-        n_s, t_s = left.split("/", 1)
-        cur, total, pct = int(n_s), int(t_s), int(float(pct_s))
-    except Exception:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                lines = f.read().strip().splitlines()
+                if lines:
+                    line = lines[-1]
+                    left, pct_s, msg = line.split("|", 2)
+                    n_s, t_s = left.split("/", 1)
+                    cur, total, pct = int(n_s), int(t_s), int(float(pct_s))
+    except (OSError, IOError, ValueError, IndexError):
         pass
     return cur, total, pct, msg
 
@@ -1502,7 +1511,9 @@ set_image_paths() {
 launch_ui() {
     local existing="${1:-}"
     local out
-    out="$(mktemp)"
+    # Use WORKDIR for temp files to avoid TMPDIR permission issues under sudo
+    mkdir -p "$WORKDIR" 2>/dev/null || true
+    out="${WORKDIR}/.launch-ui-config"
     # Prefer the invoking user's X display when running under sudo
     local py=python3
     local env_prefix=()
@@ -1701,8 +1712,15 @@ def go():
         f"SKIP_VERIFY={1 if skip_verify.get() else 0}",
         f"UPDATE_IMG={existing}",
     ]
-    with open(out, "w") as f:
-        f.write("\n".join(lines) + "\n")
+    try:
+        odir = os.path.dirname(out)
+        if odir and not os.path.exists(odir):
+            os.makedirs(odir, mode=0o755, exist_ok=True)
+        with open(out, "w") as f:
+            f.write("\n".join(lines) + "\n")
+    except (OSError, IOError) as e:
+        messagebox.showerror("Write failed", f"Could not write config file: {e}.\n\nTry running with a cleaner TMPDIR or contact support.")
+        return
     root.destroy()
 
 def cancel():
