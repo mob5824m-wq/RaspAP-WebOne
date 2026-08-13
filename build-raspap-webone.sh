@@ -104,11 +104,24 @@ progress_draw() {
     PROGRESS_TOTAL="$total"
     if [[ -n "${PROGRESS_FILE:-}" ]]; then
         mkdir -p "$(dirname "$PROGRESS_FILE")" 2>/dev/null || true
-        printf '%s/%s|%s|%s\n' "$cur" "$total" "$pct" "$msg" > "$PROGRESS_FILE" 2>/dev/null || true
+        write_progress_atomic "$PROGRESS_FILE" "$cur/$total|$pct|$msg"
     fi
     local bar
     bar="$(progress_bar_text "$pct" 32)"
     printf '[%s] %s %3d%%  %s/%s  %s\n' "$(ts)" "$bar" "$pct" "$cur" "$total" "$msg"
+}
+
+# Atomically write progress to file (using temp file + move to prevent corruption)
+write_progress_atomic() {
+    local file="$1"
+    local content="$2"
+    if [[ -z "$file" ]]; then
+        return 0
+    fi
+    local tmpfile="${file}.tmp.$$"
+    if printf '%s\n' "$content" > "$tmpfile" 2>/dev/null; then
+        mv -f "$tmpfile" "$file" 2>/dev/null || rm -f "$tmpfile"
+    fi
 }
 
 # Update the GUI bar inside the current step (0-99% of this step). No extra terminal spam.
@@ -130,7 +143,7 @@ progress_within_step() {
     fi
     [[ "$pct" -gt 99 ]] && pct=99
     if [[ -n "${PROGRESS_FILE:-}" ]]; then
-        printf '%s/%s|%s|%s\n' "$cur" "$total" "$pct" "$msg" > "$PROGRESS_FILE" 2>/dev/null || true
+        write_progress_atomic "$PROGRESS_FILE" "$cur/$total|$pct|$msg"
     fi
 }
 
@@ -142,9 +155,22 @@ progress_watch_bytes() {
     (
         trap 'exit 0' TERM INT
         set +e
+        local last_have=0 stuck_count=0
         while :; do
-            have=0; frac=0; human=""
-            [[ -f "$file" ]] && have="$(stat -c%s "$file" 2>/dev/null || echo 0)"
+            local have=0 frac=0 human=""
+            if [[ -f "$file" ]]; then
+                # Use timeout to prevent stat from hanging
+                have="$(timeout 1 stat -c%s "$file" 2>/dev/null || echo 0)" 2>/dev/null || have=0
+                [[ "$have" =~ ^[0-9]+$ ]] || have=0
+            fi
+            # Detect if download is stuck (no progress for 10 seconds)
+            if [[ "$have" -eq "$last_have" && "$have" -gt 0 ]]; then
+                ((stuck_count++))
+                [[ "$stuck_count" -gt 20 ]] && dbg "progress stalled at $have bytes (20x0.5s = 10s)" || true
+            else
+                stuck_count=0
+                last_have="$have"
+            fi
             if [[ "$expected" -gt 0 && "$have" -gt 0 ]]; then
                 frac=$(( have * 100 / expected ))
             fi
@@ -728,10 +754,13 @@ download_sources() {
     fi
 
     if [[ ! -s "$deb" ]] || ! dpkg-deb -I "$deb" >/dev/null 2>&1; then
-        log "downloading WebOne ${WEBONE_VERSION} arm64 (wget -c resumes)"
+        log "downloading WebOne ${WEBONE_VERSION} arm64 (wget -c resumes, ~22 MB)"
         local wpid="" wrc=0
         wpid="$(progress_watch_bytes "$deb" 22000000 "Downloading WebOne .deb")"
-        runv wget -c --show-progress --progress=bar:force:noscroll -O "$deb" "$WEBONE_DEB_URL" || wrc=$?
+        # Explicitly flush output before starting wget
+        printf '[%s] starting wget for WebOne .deb…\n' "$(ts)" >&2
+        runv wget -c --show-progress --progress=bar:force:noscroll -O "$deb" "$WEBONE_DEB_URL" 2>&1 || wrc=$?
+        printf '\n' >&2  # Newline after wget progress bar
         stop_watch "$wpid"
         [[ "$wrc" -eq 0 && -s "$deb" ]] || die "WebOne .deb download failed (exit $wrc)"
     else
@@ -744,7 +773,10 @@ download_sources() {
         log "downloading official RaspAP ${RASPAP_VERSION} 64-bit (~900 MB, wget -c resumes)"
         local zpid="" zrc=0
         zpid="$(progress_watch_bytes "$zip" 950000000 "Downloading RaspAP zip")"
-        runv wget -c --show-progress --progress=bar:force:noscroll -O "$zip" "$RASPAP_ZIP_URL" || zrc=$?
+        # Explicitly flush output before starting wget
+        printf '[%s] starting wget for RaspAP zip (~900 MB, may take 4+ minutes)…\n' "$(ts)" >&2
+        runv wget -c --show-progress --progress=bar:force:noscroll -O "$zip" "$RASPAP_ZIP_URL" 2>&1 || zrc=$?
+        printf '\n' >&2  # Newline after wget progress bar
         stop_watch "$zpid"
         [[ "$zrc" -eq 0 ]] || die "RaspAP zip download failed (exit $zrc)"
         unzip -tqq "$zip" || die "RaspAP zip still invalid after download"
