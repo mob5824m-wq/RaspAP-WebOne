@@ -1511,9 +1511,17 @@ set_image_paths() {
 launch_ui() {
     local existing="${1:-}"
     local out
-    # Use WORKDIR for temp files to avoid TMPDIR permission issues under sudo
-    mkdir -p "$WORKDIR" 2>/dev/null || true
-    out="${WORKDIR}/.launch-ui-config"
+    local user_home
+    # Prefer user's home directory for temp config (works better under sudo)
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+        out="${user_home}/.raspap-build-config" 2>/dev/null
+    fi
+    # Fallback to WORKDIR if home not accessible
+    if [[ -z "$out" ]] || [[ ! -d "$(dirname "$out")" ]]; then
+        mkdir -p "$WORKDIR" 2>/dev/null || true
+        out="${WORKDIR}/.launch-ui-config"
+    fi
     # Prefer the invoking user's X display when running under sudo
     local py=python3
     local env_prefix=()
@@ -1716,10 +1724,12 @@ def go():
         odir = os.path.dirname(out)
         if odir and not os.path.exists(odir):
             os.makedirs(odir, mode=0o755, exist_ok=True)
+        os.chmod(odir, 0o755) if os.path.exists(odir) else None
         with open(out, "w") as f:
             f.write("\n".join(lines) + "\n")
     except (OSError, IOError) as e:
-        messagebox.showerror("Write failed", f"Could not write config file: {e}.\n\nTry running with a cleaner TMPDIR or contact support.")
+        err_msg = f"Permission denied: {out}\n" if "Permission denied" in str(e) else f"{e}\n"
+        messagebox.showerror("Write failed", f"Could not write config file:\n{err_msg}\nMake sure the directory is writable and try again.")
         return
     root.destroy()
 
