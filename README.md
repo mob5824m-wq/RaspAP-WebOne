@@ -11,11 +11,11 @@ It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (
 | Base OS | Official RaspAP 64-bit Lite (Debian Trixie, currently 3.5.5) |
 | WebOne | arm64 `.deb` (currently 0.18.2), proxy `10.3.141.1:8080` |
 | Hotspot IP | `10.3.141.1/24` |
-| Default SSID | `RaspAP` (official RaspAP default) |
-| Wi-Fi password | `ChangeMe` (official RaspAP default; 8+ characters) |
+| Default SSID | `RaspAP` (RaspAP default) |
+| Wi-Fi password | `ChangeMe` (RaspAP default) |
 | Hostname | **none — you set it** |
 | Login user / password | **none — you set them** |
-| RaspAP web admin | `admin` / `secret` (what the official image ships) |
+| RaspAP web admin | `admin` / `secret` (RaspAP default) |
 | SSH | On by default; can be turned off |
 | PAC / WPAD | `http://10.3.141.1/wpad.dat` |
 
@@ -27,8 +27,8 @@ Connect to the hotspot, then:
 
 ## Host requirements
 
-- Debian (including ChromeOS Crostini / `penguin`)
-- Root (`sudo`)
+- Debian Trixie
+- Root 
 - About **9 GB** free for a full new build (soft-warn under 10 GB; refuses under ~4.5 GB)
 - For the graphical UI: `python3-tk`
 
@@ -40,7 +40,7 @@ The script installs the other build tools itself (`qemu-user-static`, `mtools`, 
 
 ## Run it
 
-Copy these into the same directory (do **not** copy a markdown link):
+**Download the zip or clone**
 
 - `build-raspap-webone.sh`
 - `build-cli`
@@ -65,8 +65,6 @@ sudo ./build-cli --help
 - **Enable SSH** (optional public key)
 - **Skip extras** (WebOne only, no ffmpeg / yt-dlp)
 - A progress bar in the terminal; a progress window if you have a display
-
-Hostname, login user, and login password start empty. Wi-Fi password defaults to `ChangeMe`. The build will not start until hostname, user, and login password are filled in.
 
 ### CLI (no window)
 
@@ -120,9 +118,8 @@ out/HOSTNAME-raspap3.5.5-webone0.18.2-arm64.img
 Raspberry Pi Imager:
 
 1. **Choose OS** → **Use custom** → the `.img`
-2. Next → **Edit OS customisation** if you want
-3. **Services** → Enable SSH → password and/or paste a public key
-4. Write
+2. **Services** → Enable SSH → password and/or paste a public key
+3. Write
 
 Or:
 
