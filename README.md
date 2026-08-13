@@ -164,9 +164,30 @@ Pick one in the GUI, or with flags:
 
 Off = no remote login. You can still turn SSH on later in Raspberry Pi Imager.
 
+## Download behavior
+
+**Step 3** (downloads) may take a while:
+
+- WebOne `.deb`: ~22 MB, typically 6–10 seconds
+- RaspAP zip: ~900 MB, typically 4–5 minutes at normal connection speeds
+
+The script shows:
+- Explicit start message with expected time
+- Continuous progress updates every 0.5 seconds
+- Percentage and bytes downloaded
+- Clear error messages if download fails (with option to resume)
+
+If a download fails or times out (e.g., in a CI/CD environment with a strict timeout):
+
+```bash
+sudo ./build-cli.sh --new
+```
+
+This resumes the same build. `wget -c` will resume the partial download automatically.
+
 ## Interrupted builds
 
-The script is verbose and checkpointed. If it stops:
+The script is verbose and checkpointed. If it stops at any step:
 
 ```bash
 sudo ./build-cli.sh
@@ -184,7 +205,7 @@ Last error is in `work/last-error.txt`.
 
 - Build host can be x86_64; the image is aarch64 (qemu + binfmt)
 - Peak disk is roughly: zip + working image + final image
-- Step 3 downloads the RaspAP zip and WebOne `.deb`, then verifies GitHub release SHA-256 (unless you check **Skip verification** or pass `--skip-verify`). Hashes are written next to the files in `work/dl/`
+- **Step 3** downloads the RaspAP zip and WebOne `.deb`, then verifies GitHub release SHA-256 (unless you check **Skip verification** or pass `--skip-verify`). Hashes are written next to the files in `work/dl/`. Downloads are resumable if interrupted — just run the same command again
 - RaspAP admin `admin` / `secret` is the official image default — change it in the RaspAP web UI after first boot
 - WebOne proxy for clients: `10.3.141.1:8080`, or set the PAC URL to `http://10.3.141.1/wpad.dat`
 - License: MIT
