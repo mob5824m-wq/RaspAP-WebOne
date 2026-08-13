@@ -758,11 +758,21 @@ download_sources() {
         local wpid="" wrc=0
         wpid="$(progress_watch_bytes "$deb" 22000000 "Downloading WebOne .deb")"
         # Explicitly flush output before starting wget
-        printf '[%s] starting wget for WebOne .deb…\n' "$(ts)" >&2
+        log "starting wget for WebOne .deb (~22 MB)…"
         runv wget -c --show-progress --progress=bar:force:noscroll -O "$deb" "$WEBONE_DEB_URL" 2>&1 || wrc=$?
-        printf '\n' >&2  # Newline after wget progress bar
+        printf '\n'  # Newline after wget progress bar
         stop_watch "$wpid"
-        [[ "$wrc" -eq 0 && -s "$deb" ]] || die "WebOne .deb download failed (exit $wrc)"
+        
+        # Better error handling for download failures
+        if [[ "$wrc" -ne 0 ]]; then
+            if [[ -f "$deb" ]] && stat -c%s "$deb" 2>/dev/null | grep -q .; then
+                local got="$(stat -c%s "$deb" 2>/dev/null || echo 0)"
+                local pct=$(( got * 100 / 22000000 ))
+                log "WARNING: wget exit code $wrc at ~$pct% completion (${got} bytes downloaded)"
+                log "HINT: Download can be resumed with: sudo bash $PROG --new"
+            fi
+            die "WebOne .deb download failed (exit $wrc)"
+        fi
     else
         log "WebOne .deb already present"
     fi
@@ -774,11 +784,21 @@ download_sources() {
         local zpid="" zrc=0
         zpid="$(progress_watch_bytes "$zip" 950000000 "Downloading RaspAP zip")"
         # Explicitly flush output before starting wget
-        printf '[%s] starting wget for RaspAP zip (~900 MB, may take 4+ minutes)…\n' "$(ts)" >&2
+        log "starting wget for RaspAP zip (~900 MB, may take 4+ minutes)…"
         runv wget -c --show-progress --progress=bar:force:noscroll -O "$zip" "$RASPAP_ZIP_URL" 2>&1 || zrc=$?
-        printf '\n' >&2  # Newline after wget progress bar
+        printf '\n'  # Newline after wget progress bar
         stop_watch "$zpid"
-        [[ "$zrc" -eq 0 ]] || die "RaspAP zip download failed (exit $zrc)"
+        
+        # Better error handling for download failures
+        if [[ "$zrc" -ne 0 ]]; then
+            if [[ -f "$zip" ]] && stat -c%s "$zip" 2>/dev/null | grep -q .; then
+                local got="$(stat -c%s "$zip" 2>/dev/null || echo 0)"
+                local pct=$(( got * 100 / 950000000 ))
+                log "WARNING: wget exit code $zrc at ~$pct% completion (${got} bytes downloaded)"
+                log "HINT: Download can be resumed with: sudo bash $PROG --new"
+            fi
+            die "RaspAP zip download failed (exit $zrc)"
+        fi
         unzip -tqq "$zip" || die "RaspAP zip still invalid after download"
     else
         log "RaspAP zip already present and valid"
