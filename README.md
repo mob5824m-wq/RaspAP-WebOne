@@ -20,6 +20,8 @@ It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (
 | SSH | Password, public key, both, or off (default: password) |
 | PAC / WPAD | `http://10.3.141.1/wpad.dat` |
 
+Hostname must be 1–63 characters: letters, digits, hyphen. No spaces, dots, or underscores. It cannot start or end with a hyphen. The GUI and CLI reject a bad name before the build starts.
+
 Connect to the hotspot, then:
 
 - RaspAP: http://10.3.141.1/
@@ -170,3 +172,4 @@ Last error is in `work/last-error.txt`.
 - Step 3 downloads the RaspAP zip and WebOne `.deb`, then verifies GitHub release SHA-256 (unless you check **Skip verification** or pass `--skip-verify`). Hashes are written next to the files in `work/dl/`
 - RaspAP admin `admin` / `secret` is the official image default — change it in the RaspAP web UI after first boot
 - WebOne proxy for clients: `10.3.141.1:8080`, or set the PAC URL to `http://10.3.141.1/wpad.dat`
+- License: MIT
