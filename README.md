@@ -43,11 +43,19 @@ The script installs the other build tools itself (`qemu-user-static`, `mtools`, 
 
 ## Run it
 
-**Download the repo as a zip** (GitHub → Code → Download ZIP) **or clone**. You need:
+**Download the repo as a zip** (GitHub → Code → Download ZIP) **or clone**. Unzip the folder so these sit together:
 
 - `build-raspap-webone.sh`
 - `build-cli`
 - `build-gui`
+
+If `build-cli` / `build-gui` are missing (only the `.sh` downloaded), create them:
+
+```bash
+bash build-raspap-webone.sh --install-launchers
+```
+
+Then:
 
 ```bash
 sudo ./build-cli       # text menu / flags
@@ -55,6 +63,13 @@ sudo ./build-gui       # graphical window
 ```
 
 `./build-cli` and `./build-gui` also work — they run `sudo` for you.
+
+Without the launchers you can still run:
+
+```bash
+sudo bash build-raspap-webone.sh --cli
+sudo bash build-raspap-webone.sh --ui
+```
 
 ```bash
 sudo ./build-cli --help
