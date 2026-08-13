@@ -12,7 +12,7 @@ It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (
 | WebOne | arm64 `.deb` (currently 0.18.2), proxy `10.3.141.1:8080` |
 | Hotspot IP | `10.3.141.1/24` |
 | Default SSID | `RaspAP` (official RaspAP default) |
-| Wi-Fi password | **none — you set it** (8+ characters) |
+| Wi-Fi password | 'ChangeMe' |
 | Hostname | **none — you set it** |
 | Login user / password | **none — you set them** |
 | RaspAP web admin | `admin` / `secret` (what the official image ships) |
