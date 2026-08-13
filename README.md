@@ -20,6 +20,8 @@ It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (
 | SSH | Password, public key, both, or off (default: password) |
 | PAC / WPAD | `http://10.3.141.1/wpad.dat` |
 
+Hostname must be 1–63 characters: letters, digits, hyphen. No spaces, dots, or underscores. It cannot start or end with a hyphen. The GUI and CLI reject a bad name before the build starts.
+
 Connect to the hotspot, then:
 
 - RaspAP: http://10.3.141.1/
@@ -41,21 +43,36 @@ The script installs the other build tools itself (`qemu-user-static`, `mtools`, 
 
 ## Run it
 
-**Download the repo as a zip** (GitHub → Code → Download ZIP) **or clone**. You need:
+**Download the repo as a zip** (GitHub → Code → Download ZIP) **or clone**. Unzip the folder so these sit together:
 
 - `build-raspap-webone.sh`
-- `build-cli`
-- `build-gui`
+- `build-cli.sh`
+- `build-gui.sh`
+
+If `build-cli.sh` / `build-gui.sh` are missing (only the `.sh` downloaded), create them:
 
 ```bash
-sudo ./build-cli       # text menu / flags
-sudo ./build-gui       # graphical window
+bash build-raspap-webone.sh --install-launchers
 ```
 
-`./build-cli` and `./build-gui` also work — they run `sudo` for you.
+Then:
 
 ```bash
-sudo ./build-cli --help
+sudo ./build-cli.sh       # text menu / flags
+sudo ./build-gui.sh       # graphical window
+```
+
+`./build-cli.sh` and `./build-gui.sh` also work — they run `sudo` for you.
+
+Without the launchers you can still run:
+
+```bash
+sudo bash build-raspap-webone.sh --cli
+sudo bash build-raspap-webone.sh --ui
+```
+
+```bash
+sudo ./build-cli.sh --help
 ```
 
 ### UI
@@ -65,12 +82,13 @@ sudo ./build-cli --help
 - **View** shows a hidden password
 - **SSH:** Off / Password / Public key / Both (Browse a `.pub` for key modes)
 - **Skip extras** (WebOne only, no ffmpeg / yt-dlp)
+- **Skip verification** (download without SHA-256 check)
 - A progress bar in the terminal; a progress window if you have a display
 
 ### CLI (no window)
 
 ```bash
-sudo ./build-cli --new --name mypi --user myuser --password 'your-login-pass'
+sudo ./build-cli.sh --new --name mypi --user myuser --password 'your-login-pass'
 ```
 
 Optional:
@@ -83,6 +101,7 @@ Optional:
   --ssh-pubkey --ssh-key /home/you/.ssh/id_ed25519.pub \
   --no-ssh \
   --skip-extras \
+  --skip-verify \
   --expand-mib 1024 \
   --workdir /home/you/work \
   --outdir /home/you/out
@@ -150,13 +169,13 @@ Off = no remote login. You can still turn SSH on later in Raspberry Pi Imager.
 The script is verbose and checkpointed. If it stops:
 
 ```bash
-sudo ./build-cli
+sudo ./build-cli.sh
 ```
 
 Same flags as before. To throw the work away:
 
 ```bash
-sudo ./build-cli --new
+sudo ./build-cli.sh --new
 ```
 
 Last error is in `work/last-error.txt`.
@@ -165,6 +184,7 @@ Last error is in `work/last-error.txt`.
 
 - Build host can be x86_64; the image is aarch64 (qemu + binfmt)
 - Peak disk is roughly: zip + working image + final image
-- Downloads are checked with GitHub release SHA-256 (RaspAP zip and WebOne `.deb`). Hashes are written next to the files in `work/dl/`
+- Step 3 downloads the RaspAP zip and WebOne `.deb`, then verifies GitHub release SHA-256 (unless you check **Skip verification** or pass `--skip-verify`). Hashes are written next to the files in `work/dl/`
 - RaspAP admin `admin` / `secret` is the official image default — change it in the RaspAP web UI after first boot
 - WebOne proxy for clients: `10.3.141.1:8080`, or set the PAC URL to `http://10.3.141.1/wpad.dat`
+- License: MIT

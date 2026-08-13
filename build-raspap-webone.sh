@@ -5,10 +5,10 @@
 #
 # No default login user/password. Wi-Fi password defaults to official RaspAP ChangeMe.
 #
-#   sudo ./build-cli
-#   sudo ./build-gui
-#   sudo ./build-cli --new
-#   sudo ./build-cli --help
+#   sudo ./build-cli.sh
+#   sudo ./build-gui.sh
+#   sudo ./build-cli.sh --new
+#   sudo ./build-cli.sh --help
 #
 set -euo pipefail
 
@@ -28,6 +28,7 @@ WORKDIR="${WORKDIR:-}"
 OUTDIR="${OUTDIR:-}"
 SKIP_EXTRAS=0
 SKIP_DOWNLOAD=0
+SKIP_VERIFY=0
 KEEP_WORK=0
 FRESH=0
 FORCE_APPLY=0
@@ -302,11 +303,11 @@ usage() {
 $PROG — build a RaspAP 64-bit + WebOne Raspberry Pi image on Debian
 
 USAGE
-  sudo ./build-cli                # text menu / flags
-  sudo ./build-gui                # graphical window
-  sudo ./build-cli --new
-  sudo ./build-cli --delete-all
-  sudo ./build-cli --update
+  sudo ./build-cli.sh                # text menu / flags
+  sudo ./build-gui.sh                # graphical window
+  sudo ./build-cli.sh --new
+  sudo ./build-cli.sh --delete-all
+  sudo ./build-cli.sh --update
 
 If an .img already exists, the UI (or text menu) asks:
   New image / Update (check GitHub) / Delete all / Quit
@@ -318,7 +319,7 @@ OPTIONS
   --delete-all         Delete work + output + downloads, then full rebuild
   --update [FILE]      Remount an existing .img, re-apply settings, and
                        install newer RaspAP / WebOne if GitHub has them
-  --name NAME          Hostname (required; no default)
+  --name NAME          Hostname (required; letters, digits, hyphen)
   --user USER          Login user (required; no default)
   --password PASS      Login password (required; no default)
   --ssid SSID          Hotspot SSID (default: $WIFI_SSID)
@@ -333,7 +334,9 @@ OPTIONS
   --workdir DIR        Scratch directory
   --outdir DIR         Output directory
   --skip-extras        WebOne only, no apt extras
+  --skip-verify        Download without SHA-256 check
   --keep-work          Keep scratch dirs
+  --install-launchers  Write build-cli.sh and build-gui.sh next to this script
   -h, --help           This help
 
 SSH
@@ -409,6 +412,39 @@ list_done() {
     fi
 }
 
+write_launchers() {
+    local dir="${SCRIPT_DIR}"
+    cat > "$dir/build-cli.sh" <<'EOF'
+#!/bin/bash
+# Text-only launcher. Keep this file next to build-raspap-webone.sh
+#   sudo ./build-cli.sh
+#   ./build-cli.sh
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$DIR/build-raspap-webone.sh"
+[[ -f "$SCRIPT" ]] || { printf 'missing %s\n' "$SCRIPT" >&2; exit 1; }
+if [[ "$(id -u)" -ne 0 ]]; then
+    exec sudo bash "$SCRIPT" --cli "$@"
+fi
+exec bash "$SCRIPT" --cli "$@"
+EOF
+    cat > "$dir/build-gui.sh" <<'EOF'
+#!/bin/bash
+# Graphical launcher. Keep this file next to build-raspap-webone.sh
+#   sudo ./build-gui.sh
+#   ./build-gui.sh
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$DIR/build-raspap-webone.sh"
+[[ -f "$SCRIPT" ]] || { printf 'missing %s\n' "$SCRIPT" >&2; exit 1; }
+if [[ "$(id -u)" -ne 0 ]]; then
+    exec sudo bash "$SCRIPT" --ui "$@"
+fi
+exec bash "$SCRIPT" --ui "$@"
+EOF
+    chmod +x "$dir/build-cli.sh" "$dir/build-gui.sh"
+}
+
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -436,8 +472,10 @@ parse_args() {
             --workdir)       WORKDIR="$2"; shift 2 ;;
             --outdir)        OUTDIR="$2"; shift 2 ;;
             --skip-extras)   SKIP_EXTRAS=1; shift ;;
+            --skip-verify)   SKIP_VERIFY=1; shift ;;
             --skip-download) SKIP_DOWNLOAD=1; shift ;;
             --keep-work)     KEEP_WORK=1; shift ;;
+            --install-launchers) INSTALL_LAUNCHERS=1; shift ;;
             --ui)            WANT_UI=yes; shift ;;
             --cli)           WANT_UI=no; shift ;;
             --new|--fresh)   MODE=new; FRESH=1; WANT_UI=no; shift ;;
@@ -622,13 +660,18 @@ expected_webone_sha256() {
 verify_sha256() {
     local file="$1" expect="$2" label="$3"
     [[ -s "$file" ]] || die "$label missing: $file"
+    if [[ "${SKIP_VERIFY:-0}" -eq 1 ]]; then
+        log "$label: skip verification"
+        return 0
+    fi
+    log "verify $label"
     local got=""
     got="$(sha256sum "$file" | awk '{print $1}')"
     printf '%s  %s\n' "$got" "$(basename "$file")" > "${file}.sha256"
     log "$label sha256 $got"
     if [[ -n "${expect:-}" ]]; then
         if [[ "$got" != "$expect" ]]; then
-            die "$label checksum mismatch (got $got want $expect). Delete $file and re-run."
+            die "$label checksum mismatch (got $got want $expect). Delete $file and re-run, or use --skip-verify."
         fi
         log "$label checksum OK"
     else
@@ -637,7 +680,7 @@ verify_sha256() {
 }
 
 download_sources() {
-    step "3/10  Download official RaspAP 64-bit image + WebOne .deb"
+    step "3/10  Download and verify RaspAP zip + WebOne .deb"
     mkdir -p "$WORKDIR/dl"
     local zip="$WORKDIR/dl/raspap-arm64.img.zip"
     local deb="$WORKDIR/dl/webone.linux-arm64.deb"
@@ -1475,6 +1518,7 @@ launch_ui() {
             "${SSH_KEY:-}" "$existing" "${SSH_MODE:-password}" "${WIFI_COUNTRY:-CA}" <<'PY'
 import os, sys, tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import re
 argv = sys.argv[1:]
 out, name, user, pw, ssid, psk, ssh, existing = argv[:8]
 ssh_mode_arg = argv[8] if len(argv) > 8 else "password"
@@ -1598,7 +1642,9 @@ browse_btn = ttk.Button(keyrow, text="Browse", style="Ghost.TButton", command=br
 browse_btn.pack(side="left", padx=(6, 0))
 sync_ssh()
 
+skip_verify = tk.BooleanVar(value=False)
 ttk.Checkbutton(frm, text="Skip extras", variable=skip).pack(anchor="w", pady=(10, 0))
+ttk.Checkbutton(frm, text="Skip verification", variable=skip_verify).pack(anchor="w", pady=(4, 0))
 
 btns = ttk.Frame(frm)
 btns.pack(fill="x", pady=(18, 0))
@@ -1615,6 +1661,9 @@ def go():
     host = vars["name"].get().strip()
     if not host:
         messagebox.showerror("Missing", "Hostname is required.")
+        return
+    if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?", host):
+        messagebox.showerror("Invalid", "Hostname: letters, digits, hyphen only. No spaces. Cannot start or end with a hyphen.")
         return
     if not user:
         messagebox.showerror("Missing", "Login user is required.")
@@ -1649,6 +1698,7 @@ def go():
         f"SSH_MODE={sm}",
         f"ENABLE_SSH={0 if sm == 'off' else 1}",
         f"SKIP_EXTRAS={1 if skip.get() else 0}",
+        f"SKIP_VERIFY={1 if skip_verify.get() else 0}",
         f"UPDATE_IMG={existing}",
     ]
     with open(out, "w") as f:
@@ -1681,7 +1731,7 @@ PY
                 local k="${line%%=*}"
                 local v="${line#*=}"
                 case "$k" in
-                    MODE|DEVICE_NAME|USERNAME|PASSWORD|WIFI_SSID|WIFI_PSK|WIFI_COUNTRY|SSH_KEY|SSH_MODE|ENABLE_SSH|SKIP_EXTRAS|UPDATE_IMG)
+                    MODE|DEVICE_NAME|USERNAME|PASSWORD|WIFI_SSID|WIFI_PSK|WIFI_COUNTRY|SSH_KEY|SSH_MODE|ENABLE_SSH|SKIP_EXTRAS|SKIP_VERIFY|UPDATE_IMG)
                         printf -v "$k" '%s' "$v"
                         ;;
                 esac
@@ -1736,8 +1786,14 @@ normalize_ssh_mode() {
     fi
 }
 
+valid_hostname() {
+    local h="${1:-}"
+    [[ "$h" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]]
+}
+
 require_identity() {
     [[ -n "${DEVICE_NAME:-}" ]] || die "hostname required (--name or the UI)"
+    valid_hostname "$DEVICE_NAME" || die "hostname must be 1-63 characters: letters, digits, hyphen; no spaces; cannot start or end with a hyphen"
     [[ -n "${USERNAME:-}" ]] || die "login user required (--user or the UI). There is no default."
     [[ -n "${PASSWORD:-}" ]] || die "login password required (--password or the UI). There is no default."
     [[ -n "${WIFI_SSID:-}" ]] || die "Wi-Fi SSID required (--ssid or the UI)"
@@ -1990,9 +2046,17 @@ prepare_update_image() {
     ensure_loop
 }
 
+INSTALL_LAUNCHERS=0
+
 main() {
     parse_args "$@"
-    [[ "$(id -u)" -eq 0 ]] || die "run as root:  sudo bash $PROG"
+    write_launchers 2>/dev/null || true
+    if [[ "${INSTALL_LAUNCHERS:-0}" -eq 1 ]]; then
+        [[ -x "$SCRIPT_DIR/build-cli.sh" && -x "$SCRIPT_DIR/build-gui.sh" ]]             || die "could not write launchers in $SCRIPT_DIR"
+        printf 'wrote:\n  %s\n  %s\n\nThen:\n  sudo ./build-cli.sh\n  sudo ./build-gui.sh\n'             "$SCRIPT_DIR/build-cli.sh" "$SCRIPT_DIR/build-gui.sh"
+        exit 0
+    fi
+    [[ "$(id -u)" -eq 0 ]] || die "run as root:  sudo ./build-cli.sh   or   sudo ./build-gui.sh\nOr create the launchers:  bash $PROG --install-launchers"
 
     WORKDIR="${WORKDIR:-$SCRIPT_DIR/work}"
     OUTDIR="${OUTDIR:-$SCRIPT_DIR/out}"
