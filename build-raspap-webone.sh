@@ -2089,6 +2089,11 @@ main() {
     WORKDIR="${WORKDIR:-$SCRIPT_DIR/work}"
     OUTDIR="${OUTDIR:-$SCRIPT_DIR/out}"
     mkdir -p "$WORKDIR" "$OUTDIR"
+    # Ensure WORKDIR is writable by the non-root user when running under sudo
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        chmod 755 "$WORKDIR" 2>/dev/null || true
+        chown "$SUDO_USER:$SUDO_USER" "$WORKDIR" 2>/dev/null || true
+    fi
     STATE_FILE="$WORKDIR/.build-state"
 
     choose_build_mode
