@@ -4,6 +4,8 @@ Debian script that builds one flashable Raspberry Pi **64-bit** `.img`: official
 
 It downloads the official RaspAP Lite image, grows it with `dd`, customizes it (loop mount + qemu), and writes a final `.img` you flash with Raspberry Pi Imager.
 
+Works on **Debian or Ubuntu** (any recent, not just Crostini) and on **macOS** (Docker Desktop).
+
 ## What you get
 
 | Item | Value |
@@ -30,8 +32,9 @@ Connect to the hotspot, then:
 
 ## Host requirements
 
-- Debian Trixie
-- Root 
+**Debian / Ubuntu**
+
+- Root (`sudo`)
 - About **9 GB** free for a full new build (soft-warn under 10 GB; refuses under ~4.5 GB)
 - For the graphical UI: `python3-tk`
 
@@ -41,6 +44,10 @@ sudo apt-get install -y python3-tk
 
 The script installs the other build tools itself (`qemu-user-static`, `mtools`, `parted`, …).
 
+**macOS**
+
+The image is Linux ext4 + qemu. macOS cannot do that natively. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/), start it, then run the same commands. The GUI can run on the Mac first; the heavy build runs in a privileged Debian container and writes `work/` and `out/` in this folder.
+
 ## Run it
 
 **Download the repo as a zip** (GitHub → Code → Download ZIP) **or clone**. Unzip the folder so these sit together:
@@ -49,10 +56,16 @@ The script installs the other build tools itself (`qemu-user-static`, `mtools`, 
 - `build-cli.sh`
 - `build-gui.sh`
 
-If `build-cli.sh` / `build-gui.sh` are missing (only the `.sh` downloaded), create them:
+If `build-cli.sh` / `build-gui.sh` are missing, create them:
 
 ```bash
 bash build-raspap-webone.sh --install-launchers
+```
+
+Always make them executable after a zip download:
+
+```bash
+chmod +x build-raspap-webone.sh build-cli.sh build-gui.sh
 ```
 
 Then:
@@ -62,9 +75,9 @@ sudo ./build-cli.sh       # text menu / flags
 sudo ./build-gui.sh       # graphical window
 ```
 
-`./build-cli.sh` and `./build-gui.sh` also work — they run `sudo` for you.
+`./build-cli.sh` and `./build-gui.sh` also work — they run `sudo` for you (on Mac they start Docker).
 
-Without the launchers you can still run:
+Without the launchers:
 
 ```bash
 sudo bash build-raspap-webone.sh --cli
@@ -182,7 +195,7 @@ Last error is in `work/last-error.txt`.
 
 ## Notes
 
-- Build host can be x86_64; the image is aarch64 (qemu + binfmt)
+- Linux host (Debian/Ubuntu, x86_64 or arm64) or macOS with Docker Desktop; the image is aarch64 (qemu + binfmt)
 - Peak disk is roughly: zip + working image + final image
 - Step 3 downloads the RaspAP zip and WebOne `.deb`, then verifies GitHub release SHA-256 (unless you check **Skip verification** or pass `--skip-verify`). Hashes are written next to the files in `work/dl/`
 - RaspAP admin `admin` / `secret` is the official image default — change it in the RaspAP web UI after first boot

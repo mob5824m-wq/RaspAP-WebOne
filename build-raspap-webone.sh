@@ -5,6 +5,7 @@
 #
 # No default login user/password. Wi-Fi password defaults to official RaspAP ChangeMe.
 #
+#   chmod +x build-raspap-webone.sh build-cli.sh build-gui.sh
 #   sudo ./build-cli.sh
 #   sudo ./build-gui.sh
 #   sudo ./build-cli.sh --new
@@ -29,6 +30,7 @@ OUTDIR="${OUTDIR:-}"
 SKIP_EXTRAS=0
 SKIP_DOWNLOAD=0
 SKIP_VERIFY=0
+IN_DOCKER="${IN_DOCKER:-0}"
 KEEP_WORK=0
 FRESH=0
 FORCE_APPLY=0
@@ -206,8 +208,8 @@ start_progress_ui() {
     local env_prefix=()
     if [[ -n "${SUDO_USER:-}" ]]; then
         env_prefix=(sudo -u "$SUDO_USER" env "DISPLAY=${DISPLAY}" \
-            "XAUTHORITY=${XAUTHORITY:-/home/${SUDO_USER}/.Xauthority}" \
-            "HOME=/home/${SUDO_USER}")
+            "XAUTHORITY=${XAUTHORITY:-$(sudo_user_home)/.Xauthority}" \
+            "HOME=$(sudo_user_home)")
     fi
     "${env_prefix[@]+"${env_prefix[@]}"}" python3 - "$PROGRESS_FILE" <<'PY' &
 import os, sys, tkinter as tk
@@ -294,6 +296,22 @@ PY
 runv() { dbg "+ $*"; "$@"; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
+sudo_user_home() {
+    local h=""
+    if [[ -z "${SUDO_USER:-}" ]]; then
+        return 0
+    fi
+    h="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)"
+    if [[ -z "$h" ]]; then
+        h="$(eval echo "~$SUDO_USER" 2>/dev/null || true)"
+    fi
+    if [[ -z "$h" || "$h" == "~$SUDO_USER" ]]; then
+        h="/home/$SUDO_USER"
+        [[ "$(uname -s)" == Darwin ]] && h="/Users/$SUDO_USER"
+    fi
+    printf '%s\n' "$h"
+}
+
 as_root() {
     if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo -n "$@"; fi
 }
@@ -303,6 +321,7 @@ usage() {
 $PROG — build a RaspAP 64-bit + WebOne Raspberry Pi image on Debian
 
 USAGE
+  chmod +x build-raspap-webone.sh build-cli.sh build-gui.sh
   sudo ./build-cli.sh                # text menu / flags
   sudo ./build-gui.sh                # graphical window
   sudo ./build-cli.sh --new
@@ -348,7 +367,8 @@ SSH
 
 PROGRESS
   Every step prints a percent bar. If you have a display, a progress
-  window opens for the build (install python3-tk on Debian/Crostini).
+  window opens for the build (install python3-tk on Debian/Ubuntu).
+  macOS: Docker Desktop is required; the build runs in a Debian container.
   --cli skips the window; the terminal bar still prints.
 
 RESUME
@@ -478,8 +498,9 @@ parse_args() {
             --install-launchers) INSTALL_LAUNCHERS=1; shift ;;
             --ui)            WANT_UI=yes; shift ;;
             --cli)           WANT_UI=no; shift ;;
-            --new|--fresh)   MODE=new; FRESH=1; WANT_UI=no; shift ;;
-            --delete-all)    MODE=delete-all; FRESH=1; WANT_UI=no; shift ;;
+            --in-docker)     IN_DOCKER=1; shift ;;
+            --new|--fresh)   MODE=new; FRESH=1; [[ "$WANT_UI" == "yes" ]] || WANT_UI=no; shift ;;
+            --delete-all)    MODE=delete-all; FRESH=1; [[ "$WANT_UI" == "yes" ]] || WANT_UI=no; shift ;;
             --update)
                 MODE=update
                 WANT_UI=no
@@ -573,14 +594,18 @@ install_host_deps() {
         mark_done host-deps
         return 0
     fi
-    dbg "host: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}") $(uname -m)"
+    dbg "host: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}") $(uname -s) $(uname -m)"
     df -h . | sed 's/^/[disk] /'
+    command -v apt-get >/dev/null 2>&1 || \
+        die "need apt (Debian or Ubuntu). On macOS install Docker Desktop and re-run."
     runv as_root apt-get update
     runv as_root apt-get install -y --no-install-recommends \
         wget ca-certificates unzip openssl \
         util-linux fdisk parted e2fsprogs kpartx rsync \
         qemu-user-static binfmt-support mtools dosfstools \
-        python3 python3-tk file
+        python3 file
+    runv as_root apt-get install -y --no-install-recommends python3-tk || \
+        warn "python3-tk not installed — GUI unavailable, CLI still works"
     for c in dd losetup parted resize2fs qemu-aarch64-static mdir openssl unzip wget python3; do
         dbg "found $c -> $(command -v "$c")"
         need_cmd "$c"
@@ -1346,8 +1371,17 @@ install_webone_and_extras() {
     as_root touch "$root/var/log/webone.log" "$root/etc/webone.conf.d/ssl.crt" "$root/etc/webone.conf.d/ssl.key"
     as_root chmod 666 "$root/var/log/webone.log" "$root/etc/webone.conf.d/ssl.crt" "$root/etc/webone.conf.d/ssl.key"
 
-    if [[ -f "$root/etc/systemd/system/webone.service" ]]; then
-        as_root ln -sfn /etc/systemd/system/webone.service \
+    local webone_unit=""
+    if [[ -f "$root/lib/systemd/system/webone.service" ]]; then
+        webone_unit=/lib/systemd/system/webone.service
+    elif [[ -f "$root/usr/lib/systemd/system/webone.service" ]]; then
+        webone_unit=/usr/lib/systemd/system/webone.service
+    elif [[ -f "$root/etc/systemd/system/webone.service" ]]; then
+        webone_unit=/etc/systemd/system/webone.service
+    fi
+    if [[ -n "$webone_unit" ]]; then
+        as_root mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
+        as_root ln -sfn "$webone_unit" \
             "$root/etc/systemd/system/multi-user.target.wants/webone.service"
     fi
 
@@ -1508,8 +1542,8 @@ launch_ui() {
     local env_prefix=()
     if [[ -n "${SUDO_USER:-}" && -n "${DISPLAY:-}" ]]; then
         env_prefix=(sudo -u "$SUDO_USER" env "DISPLAY=${DISPLAY}" \
-            "XAUTHORITY=${XAUTHORITY:-/home/${SUDO_USER}/.Xauthority}" \
-            "HOME=/home/${SUDO_USER}")
+            "XAUTHORITY=${XAUTHORITY:-$(sudo_user_home)/.Xauthority}" \
+            "HOME=$(sudo_user_home)")
     fi
 
     if python3 -c "import tkinter" >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
@@ -1870,7 +1904,7 @@ choose_build_mode() {
             printf 'Choose [n/u/d/q]: ' >&2
             IFS= read -r ans || true
         fi
-        case "${ans,,}" in
+        case "$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]' )" in
             n|new) MODE=new; FRESH=1; log "mode: NEW (you chose rebuild)" ;;
             u|update)
                 MODE=update
@@ -2046,6 +2080,72 @@ prepare_update_image() {
     ensure_loop
 }
 
+
+docker_cmd() {
+    if [[ "$(id -u)" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+        sudo -u "$SUDO_USER" docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
+reexec_in_debian_docker() {
+    command -v docker >/dev/null 2>&1 || \
+        die "macOS cannot loop-mount a Linux ext4 image natively.
+Install Docker Desktop, start it, then re-run:
+  https://docs.docker.com/desktop/setup/install/mac-install/"
+    docker_cmd info >/dev/null 2>&1 || \
+        die "Docker is installed but not running. Start Docker Desktop and re-run."
+
+    local args=()
+    args+=(--in-docker --cli)
+    case "${MODE:-new}" in
+        new) args+=(--new) ;;
+        delete-all) args+=(--delete-all) ;;
+        update)
+            args+=(--update)
+            if [[ -n "${UPDATE_IMG:-}" && -f "$UPDATE_IMG" ]]; then
+                if [[ "$UPDATE_IMG" == "$SCRIPT_DIR/"* ]]; then
+                    args+=("/work/${UPDATE_IMG#"$SCRIPT_DIR"/}")
+                else
+                    args+=("/work/update.img")
+                fi
+            fi
+            ;;
+        resume) ;;
+    esac
+    args+=(--name "$DEVICE_NAME" --user "$USERNAME" --password "$PASSWORD")
+    args+=(--ssid "$WIFI_SSID" --wifi-pass "$WIFI_PSK" --country "$WIFI_COUNTRY")
+    case "${SSH_MODE:-password}" in
+        off) args+=(--no-ssh) ;;
+        password) args+=(--ssh-password) ;;
+        pubkey) args+=(--ssh-pubkey) ;;
+        both) args+=(--ssh) ;;
+    esac
+    local mounts=()
+    if [[ -n "${SSH_KEY:-}" && -f "$SSH_KEY" ]]; then
+        mounts+=(-v "$(cd "$(dirname "$SSH_KEY")" && pwd)/$(basename "$SSH_KEY"):/tmp/ssh.pub:ro")
+        args+=(--ssh-key /tmp/ssh.pub)
+    fi
+    if [[ "${MODE:-}" == "update" && -n "${UPDATE_IMG:-}" && -f "$UPDATE_IMG" && "$UPDATE_IMG" != "$SCRIPT_DIR/"* ]]; then
+        mounts+=(-v "$UPDATE_IMG:/work/update.img")
+    fi
+    [[ "${SKIP_EXTRAS:-0}" -eq 1 ]] && args+=(--skip-extras)
+    [[ "${SKIP_VERIFY:-0}" -eq 1 ]] && args+=(--skip-verify)
+    args+=(--workdir /work/work --outdir /work/out)
+    log "macOS: starting privileged Debian container for loop/qemu"
+    # exec cannot run a shell function; docker_cmd must be invoked normally.
+    docker_cmd run --rm -it --privileged \
+        -e IN_DOCKER=1 \
+        -e DEBIAN_FRONTEND=noninteractive \
+        -v "$SCRIPT_DIR:/work" \
+        ${mounts[@]+"${mounts[@]}"} \
+        -w /work \
+        debian:trixie-slim \
+        bash /work/build-raspap-webone.sh "${args[@]}"
+    exit $?
+}
+
 INSTALL_LAUNCHERS=0
 
 main() {
@@ -2053,15 +2153,30 @@ main() {
     write_launchers 2>/dev/null || true
     if [[ "${INSTALL_LAUNCHERS:-0}" -eq 1 ]]; then
         [[ -x "$SCRIPT_DIR/build-cli.sh" && -x "$SCRIPT_DIR/build-gui.sh" ]]             || die "could not write launchers in $SCRIPT_DIR"
-        printf 'wrote:\n  %s\n  %s\n\nThen:\n  sudo ./build-cli.sh\n  sudo ./build-gui.sh\n'             "$SCRIPT_DIR/build-cli.sh" "$SCRIPT_DIR/build-gui.sh"
+        printf 'wrote:\n  %s\n  %s\n\nThen:\n  chmod +x build-raspap-webone.sh build-cli.sh build-gui.sh\n  sudo ./build-cli.sh\n  sudo ./build-gui.sh\n' \
+            "$SCRIPT_DIR/build-cli.sh" "$SCRIPT_DIR/build-gui.sh"
         exit 0
     fi
-    [[ "$(id -u)" -eq 0 ]] || die "run as root:  sudo ./build-cli.sh   or   sudo ./build-gui.sh\nOr create the launchers:  bash $PROG --install-launchers"
 
     WORKDIR="${WORKDIR:-$SCRIPT_DIR/work}"
     OUTDIR="${OUTDIR:-$SCRIPT_DIR/out}"
     mkdir -p "$WORKDIR" "$OUTDIR"
     STATE_FILE="$WORKDIR/.build-state"
+
+    if [[ "$(uname -s)" == Darwin && "${IN_DOCKER:-0}" -ne 1 ]]; then
+        choose_build_mode
+        if [[ "$MODE" == "done" ]]; then
+            set_image_paths
+            ls -lh "$IMG_FINAL" 2>/dev/null | sed 's/^/[out] /' || true
+            printf '\nImage ready.\n  %s\n' "${IMG_FINAL:-}"
+            return 0
+        fi
+        require_identity
+        set_image_paths
+        reexec_in_debian_docker
+    fi
+
+    [[ "$(id -u)" -eq 0 ]] || die "run as root:  sudo ./build-cli.sh   or   sudo ./build-gui.sh\nOr create the launchers:  bash $PROG --install-launchers"
 
     choose_build_mode
     if [[ "$MODE" != "done" ]]; then
